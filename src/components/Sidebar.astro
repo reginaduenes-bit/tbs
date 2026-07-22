@@ -1,0 +1,38 @@
+---
+const secciones = [
+  { titulo: 'Estrategia', items: [
+    { id: 'dashboard',   ic: '▦',  nombre: 'Cuadro de Mando' },
+    { id: 'tablero',     ic: '📊', nombre: 'Tableros Visuales' },
+    { id: 'mapa',        ic: '⇅',  nombre: 'Mapa Estratégico' },
+    { id: 'analisis',    ic: '📈', nombre: 'Análisis' },
+  ]},
+  { titulo: 'Operación', items: [
+    { id: 'captura',     ic: '✎',  nombre: 'Captura de Datos' },
+    { id: 'indicadores', ic: '🎯', nombre: 'Indicadores' },
+  ]},
+  { titulo: 'Administración', items: [
+    { id: 'datos',       ic: '⇄',  nombre: 'Importar / Exportar' },
+    { id: 'config',      ic: '⚙',  nombre: 'Configuración' },
+  ]},
+];
+---
+
+<aside id="sidebar">
+  <div id="brand">
+    <h1><span class="logo">◈</span><span class="bt">BSC Integral</span></h1>
+    <p>Balanced Scorecard · Kaplan &amp; Norton</p>
+  </div>
+  <nav id="nav">
+    {secciones.map((s) => (
+      <>
+        <div class="nav-section">{s.titulo}</div>
+        {s.items.map((i) => (
+          <button class={'nav-item' + (i.id === 'dashboard' ? ' active' : '')} data-view={i.id}>
+            <span class="ic">{i.ic}</span><span class="t">{i.nombre}</span>
+          </button>
+        ))}
+      </>
+    ))}
+  </nav>
+  <div id="sidebar-foot">Cuadro de Mando Integral<br />Sector Automotriz</div>
+</aside>

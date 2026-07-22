@@ -1,0 +1,15 @@
+# dependencias
+node_modules/
+
+# resultado de la compilación
+dist/
+.astro/
+
+# variables de entorno (NUNCA subir las claves a un repositorio)
+.env
+.env.production
+.env.local
+
+# sistema
+.DS_Store
+*.log

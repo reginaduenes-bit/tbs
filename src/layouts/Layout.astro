@@ -1,0 +1,42 @@
+---
+import '../styles/global.css';
+import Sidebar from '../components/Sidebar.astro';
+
+interface Props { titulo?: string }
+const { titulo = 'BSC · Cuadro de Mando Integral' } = Astro.props;
+---
+
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#0d1526" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="description" content="Cuadro de Mando Integral (Balanced Scorecard) para el sector automotriz. Metodología Kaplan y Norton." />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>{titulo}</title>
+  </head>
+  <body>
+    <div id="app">
+      <Sidebar />
+      <div id="main">
+        <div id="topbar">
+          <div>
+            <h2 id="tb-title">Cuadro de Mando</h2>
+            <div class="sub" id="tb-sub"></div>
+          </div>
+          <div class="spacer"></div>
+          <div id="cloud"></div>
+          <div id="tb-actions"></div>
+        </div>
+        <div id="content"></div>
+      </div>
+    </div>
+
+    <div id="modal-bg"><div id="modal"></div></div>
+    <div id="toast"></div>
+
+    <slot />
+  </body>
+</html>

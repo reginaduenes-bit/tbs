@@ -1,0 +1,288 @@
+/**
+ * Conexión con Supabase.
+ * Las credenciales vienen del archivo .env (PUBLIC_SUPABASE_URL / PUBLIC_SUPABASE_ANON_KEY)
+ * y Astro las inyecta al compilar. No hay nada que configurar en el código.
+ */
+import { createClient } from '@supabase/supabase-js';
+import { DB, save, LS_KEY, alGuardar, setDB } from './state.js';
+import { seed } from './seed.js';
+import { $, esc, toast, openModal, closeModal } from './ui.js';
+import { render, vistaActual } from './router.js';
+
+export const SB_AUTO = 'bsc_sb_auto';
+export const SB_LAST = 'bsc_sb_last';
+
+const URL_SB = (import.meta.env.PUBLIC_SUPABASE_URL || '').trim().replace(/\/+$/, '');
+const KEY_SB = (import.meta.env.PUBLIC_SUPABASE_ANON_KEY || '').trim();
+
+/** Cliente oficial de Supabase. Es null si el .env está vacío (modo solo local). */
+export const supabase =
+  URL_SB && KEY_SB
+    ? createClient(URL_SB, KEY_SB, {
+        auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false, storageKey: 'bsc-auth' },
+      })
+    : null;
+
+/** Usuario con sesión iniciada (enlace vivo para las vistas). */
+export let sbUser = null;
+
+let sbBusy = false, _pushT = null;
+
+const TABLAS = ['bsc_empresa', 'bsc_perspectivas', 'bsc_usuarios', 'bsc_objetivos', 'bsc_relaciones', 'bsc_indicadores', 'bsc_mediciones'];
+
+/* ============================================================
+   Mapeo entre el modelo local y las tablas de la base de datos
+   ============================================================ */
+function filas(tabla) {
+  switch (tabla) {
+    case 'bsc_empresa':
+      return [{ id: 1, nombre: DB.empresa }];
+    case 'bsc_perspectivas':
+      return DB.perspectivas.map((p) => ({ id: p.id, nombre: p.nombre, color: p.color, icono: p.icono, orden: p.orden, descripcion: p.desc || '' }));
+    case 'bsc_usuarios':
+      return DB.usuarios.map((u) => ({ id: u.id, nombre: u.nombre, iniciales: u.ini }));
+    case 'bsc_objetivos':
+      return DB.objetivos.map((o) => ({ id: o.id, perspectiva_id: o.pid, nombre: o.nombre }));
+    case 'bsc_relaciones':
+      return DB.relaciones.map((r) => ({ id: r.de + '|' + r.a, causa_id: r.de, efecto_id: r.a }));
+    case 'bsc_indicadores':
+      return DB.indicadores.map((i) => ({
+        id: i.id, nombre: i.nombre, perspectiva_id: i.pid, objetivo_id: i.oid || null, responsable_id: i.resp || null,
+        unidad: i.unidad || '', direccion: i.dir, meta: i.meta, frecuencia: i.frec, visualizacion: i.viz || 'auto',
+        peso: i.peso || 1, umbral_verde: i.verde, umbral_amarillo: i.amarillo, descripcion: i.desc || '', activo: i.activo !== false,
+      }));
+    case 'bsc_mediciones': {
+      const out = [];
+      Object.keys(DB.mediciones || {}).forEach((iid) =>
+        (DB.mediciones[iid] || []).forEach((m) => {
+          out.push({ id: iid + '|' + m.periodo, indicador_id: iid, periodo: m.periodo, valor: m.valor, capturo: m.quien || null, nota: m.nota || '', fecha: m.fecha || new Date().toISOString() });
+        })
+      );
+      return out;
+    }
+  }
+  return [];
+}
+
+function aplicar(datos) {
+  if (datos.bsc_empresa && datos.bsc_empresa.length) DB.empresa = datos.bsc_empresa[0].nombre || DB.empresa;
+  if (datos.bsc_perspectivas && datos.bsc_perspectivas.length)
+    DB.perspectivas = datos.bsc_perspectivas.map((r) => ({ id: r.id, nombre: r.nombre, color: r.color, icono: r.icono, orden: r.orden, desc: r.descripcion || '' }));
+  if (datos.bsc_usuarios) DB.usuarios = datos.bsc_usuarios.map((r) => ({ id: r.id, nombre: r.nombre, ini: r.iniciales || '' }));
+  if (datos.bsc_objetivos) DB.objetivos = datos.bsc_objetivos.map((r) => ({ id: r.id, pid: r.perspectiva_id, nombre: r.nombre }));
+  if (datos.bsc_relaciones) DB.relaciones = datos.bsc_relaciones.map((r) => ({ de: r.causa_id, a: r.efecto_id }));
+  if (datos.bsc_indicadores)
+    DB.indicadores = datos.bsc_indicadores.map((r) => ({
+      id: r.id, nombre: r.nombre, pid: r.perspectiva_id, oid: r.objetivo_id, resp: r.responsable_id, unidad: r.unidad || '',
+      dir: r.direccion, meta: r.meta == null ? null : Number(r.meta), frec: r.frecuencia, viz: r.visualizacion || 'auto',
+      peso: Number(r.peso) || 1, verde: Number(r.umbral_verde) || 95, amarillo: Number(r.umbral_amarillo) || 80,
+      desc: r.descripcion || '', activo: r.activo !== false,
+    }));
+  if (datos.bsc_mediciones) {
+    const m = {};
+    datos.bsc_mediciones.forEach((r) => {
+      if (!m[r.indicador_id]) m[r.indicador_id] = [];
+      m[r.indicador_id].push({ periodo: r.periodo, valor: Number(r.valor), quien: r.capturo, nota: r.nota || '', fecha: r.fecha });
+    });
+    DB.mediciones = m;
+  }
+  DB._del = [];
+}
+
+/* ============================================================
+   API pública (misma superficie que la versión anterior)
+   ============================================================ */
+export const SB = {
+  configurado() { return !!supabase; },
+  listo() { return !!(supabase && sbUser); },
+  cfg() { return { url: URL_SB, key: KEY_SB, fuente: URL_SB ? '.env' : null }; },
+
+  async login(email, password) {
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) throw new Error(error.message);
+    sbUser = { email: data.user.email, id: data.user.id };
+    return sbUser;
+  },
+
+  async logout() {
+    try { await supabase.auth.signOut(); } catch (e) {}
+    sbUser = null;
+    actualizarChip();
+    toast('Sesión cerrada · sigues trabajando en local');
+  },
+
+  async restaurarSesion() {
+    if (!supabase) return false;
+    const { data } = await supabase.auth.getSession();
+    if (data && data.session && data.session.user) {
+      sbUser = { email: data.session.user.email, id: data.session.user.id };
+      return true;
+    }
+    return false;
+  },
+
+  /** Descarga todo desde la nube y reemplaza la copia local. */
+  async pull() {
+    if (!supabase) throw new Error('Supabase no está configurado.');
+    const datos = {};
+    let total = 0;
+    for (const t of TABLAS) {
+      const { data, error } = await supabase.from(t).select('*');
+      if (error) throw new Error(t + ': ' + error.message);
+      datos[t] = data || [];
+      total += datos[t].length;
+    }
+    aplicar(datos);
+    save();
+    localStorage.setItem(SB_LAST, new Date().toISOString());
+    return total;
+  },
+
+  /** Envía la copia local a la nube (inserta o actualiza) y aplica las eliminaciones pendientes. */
+  async push() {
+    if (!supabase) throw new Error('Supabase no está configurado.');
+    for (const d of DB._del || []) {
+      try { await supabase.from(d.t).delete().eq('id', d.id); } catch (e) {}
+    }
+    DB._del = [];
+    let n = 0;
+    for (const t of TABLAS) {
+      const rows = filas(t);
+      for (let k = 0; k < rows.length; k += 400) {
+        const lote = rows.slice(k, k + 400);
+        if (!lote.length) continue;
+        const { error } = await supabase.from(t).upsert(lote, { onConflict: 'id' });
+        if (error) throw new Error(t + ': ' + error.message);
+        n += lote.length;
+      }
+    }
+    try { localStorage.setItem(LS_KEY, JSON.stringify(DB)); } catch (e) {}
+    localStorage.setItem(SB_LAST, new Date().toISOString());
+    return n;
+  },
+
+  /** ¿La base en la nube está vacía? (para sembrarla la primera vez) */
+  async vacia() {
+    const { data, error } = await supabase.from('bsc_indicadores').select('id').limit(1);
+    if (error) throw new Error(error.message);
+    return !data || data.length === 0;
+  },
+};
+
+/* ---------- autosincronización ---------- */
+export function sbAuto() { return localStorage.getItem(SB_AUTO) !== '0'; }
+export function setAutoSync(v) {
+  localStorage.setItem(SB_AUTO, v ? '1' : '0');
+  toast(v ? '✓ Autosincronización activada' : 'Autosincronización desactivada');
+}
+
+function programarPush() {
+  clearTimeout(_pushT);
+  _pushT = setTimeout(async () => {
+    if (!SB.listo() || sbBusy) return;
+    sbBusy = true;
+    actualizarChip('sync');
+    try { await SB.push(); actualizarChip(); }
+    catch (e) { actualizarChip('error'); }
+    finally { sbBusy = false; }
+  }, 2500);
+}
+
+export async function sincronizar(modo) {
+  if (!SB.configurado()) return toast('⚠ Falta configurar el archivo .env con tus claves de Supabase');
+  if (!sbUser) return loginModal();
+  if (sbBusy) return toast('Sincronizando…');
+  sbBusy = true;
+  actualizarChip('sync');
+  try {
+    if (modo === 'pull') { const n = await SB.pull(); toast('✓ ' + n + ' registros descargados de la nube'); render(); }
+    else { const n = await SB.push(); toast('✓ ' + n + ' registros guardados en la nube'); }
+    actualizarChip();
+  } catch (e) {
+    actualizarChip('error');
+    toast('⚠ ' + e.message);
+  } finally {
+    sbBusy = false;
+    if (vistaActual() === 'config') render();
+  }
+}
+
+export function cerrarSesion() { SB.logout().then(() => render()); }
+
+/* ---------- indicador de estado en la barra superior ---------- */
+export function actualizarChip(estado) {
+  const el = $('#cloud');
+  if (!el) return;
+  if (!SB.configurado()) { el.innerHTML = '<span class="cchip off" title="Sin .env configurado: los datos se guardan solo en este dispositivo">◍ Local</span>'; return; }
+  if (!sbUser) { el.innerHTML = '<button class="cchip warn" onclick="loginModal()">⌁ Iniciar sesión</button>'; return; }
+  if (estado === 'sync') { el.innerHTML = '<span class="cchip sync">⟳ Sincronizando…</span>'; return; }
+  if (estado === 'error') { el.innerHTML = '<button class="cchip err" onclick="sincronizar(\'push\')" title="Reintentar">⚠ Sin guardar</button>'; return; }
+  const last = localStorage.getItem(SB_LAST);
+  const h = last ? new Date(last).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }) : '';
+  el.innerHTML = '<button class="cchip ok" onclick="nav(\'config\')" title="' + esc(sbUser.email) + '">☁ En la nube' + (h ? ' · ' + h : '') + '</button>';
+}
+export const updateCloudChip = actualizarChip;
+
+/* ---------- acceso ---------- */
+export function loginModal() {
+  openModal(`<div class="mhead"><h3>Acceder a la nube</h3><button class="close-x" onclick="closeModal()">✕</button></div>
+  <div class="mbody">
+    ${!SB.configurado()
+      ? `<p class="help" style="color:var(--red)">⚠ No hay credenciales. Abre el archivo <b>.env</b> del proyecto, pega tu <b>PUBLIC_SUPABASE_URL</b> y <b>PUBLIC_SUPABASE_ANON_KEY</b>, y vuelve a iniciar el proyecto.</p>`
+      : `<p class="help" style="margin-bottom:14px">Proyecto: <b>${esc(URL_SB.replace(/^https?:\/\//, ''))}</b> <span class="chip gray">.env</span></p>
+    <div class="frow f1"><div class="fitem"><label>Correo</label><input id="sb-mail" type="email" autocomplete="username" placeholder="tu@empresa.com"></div></div>
+    <div class="frow f1"><div class="fitem"><label>Contraseña</label><input id="sb-pass" type="password" autocomplete="current-password" placeholder="••••••••" onkeydown="if(event.key==='Enter')hacerLogin()"></div></div>
+    <p class="help">Las cuentas se crean en tu panel de Supabase (Authentication → Users). Sin iniciar sesión puedes seguir trabajando: los datos se guardan en este dispositivo.</p>
+    <div id="sb-msg"></div>`}
+  </div>
+  <div class="mfoot"><button class="btn" onclick="closeModal()">Trabajar sin conexión</button>
+  ${SB.configurado() ? '<button class="btn primary" onclick="hacerLogin()">Entrar</button>' : ''}</div>`);
+  setTimeout(() => { const m = $('#sb-mail'); if (m) m.focus(); }, 80);
+}
+
+export async function hacerLogin() {
+  const mail = ($('#sb-mail') || {}).value, pass = ($('#sb-pass') || {}).value;
+  if (!mail || !pass) return toast('⚠ Captura tu correo y contraseña');
+  const msg = $('#sb-msg');
+  if (msg) msg.innerHTML = '<p class="help">Conectando…</p>';
+  try {
+    await SB.login(mail.trim(), pass);
+    closeModal();
+    actualizarChip();
+    toast('✓ Sesión iniciada como ' + sbUser.email);
+    await sincronizarInicio();
+  } catch (e) {
+    const t = e.message === 'Invalid login credentials' ? 'Correo o contraseña incorrectos.' : e.message;
+    if (msg) msg.innerHTML = '<p class="help" style="color:var(--red)">⚠ ' + esc(t) + '</p>';
+  }
+}
+
+/** Primera sincronización: si la nube está vacía, siembra; si no, descarga. */
+async function sincronizarInicio() {
+  try {
+    if (await SB.vacia()) {
+      const n = await SB.push();
+      toast('✓ Base creada en la nube con ' + n + ' registros');
+    } else {
+      const n = await SB.pull();
+      toast('☁ ' + n + ' registros descargados');
+    }
+    render();
+    actualizarChip();
+  } catch (e) {
+    actualizarChip('error');
+    toast('⚠ ' + e.message);
+  }
+}
+
+export async function initCloud() {
+  actualizarChip();
+  alGuardar(() => { if (SB.listo() && sbAuto()) programarPush(); });
+  if (!supabase) return;
+  if (await SB.restaurarSesion()) {
+    actualizarChip('sync');
+    await sincronizarInicio();
+  } else {
+    actualizarChip();
+  }
+}

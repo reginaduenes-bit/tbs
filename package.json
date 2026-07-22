@@ -1,0 +1,18 @@
+{
+  "name": "bsc-integral",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Cuadro de Mando Integral (Balanced Scorecard) - Kaplan & Norton - sector automotriz",
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "start": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "astro": "astro"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.4",
+    "astro": "^4.16.0"
+  }
+}
