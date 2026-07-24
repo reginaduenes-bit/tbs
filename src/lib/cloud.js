@@ -131,7 +131,9 @@ export const SB = {
     const tmp = createClient(URL_SB, KEY_SB, {
       auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false, storageKey: 'bsc-alta-tmp' },
     });
-    const { data, error } = await tmp.auth.signUp({ email, password });
+    // Si el proyecto exige confirmar correo, el enlace regresa a ESTE sitio
+    // (localhost en desarrollo, el dominio real en producción), no a un fijo.
+    const { data, error } = await tmp.auth.signUp({ email, password, options: { emailRedirectTo: window.location.origin } });
     try { await tmp.auth.signOut(); } catch (e) {}
     if (error) throw new Error(error.message);
     return { sesion: !!(data && data.session) };
@@ -144,7 +146,7 @@ export const SB = {
    * envió un correo de confirmación y hay que abrir el enlace antes de entrar.
    */
   async registrar(email, password) {
-    const { data, error } = await supabase.auth.signUp({ email, password });
+    const { data, error } = await supabase.auth.signUp({ email, password, options: { emailRedirectTo: window.location.origin } });
     if (error) throw new Error(error.message);
     // Con confirmación de correo desactivada, signUp devuelve sesión al instante.
     if (data.session && data.user) {
