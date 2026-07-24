@@ -8,7 +8,7 @@ import { DB, save, LS_KEY, alGuardar, setDB } from './state.js';
 import { seed } from './seed.js';
 import { $, esc, toast, openModal, closeModal } from './ui.js';
 import { render, vistaActual } from './router.js';
-import { setPerfil, limpiarPerfil, setDisponible } from './permisos.js';
+import { setPerfil, limpiarPerfil, setDisponible, esAdmin } from './permisos.js';
 
 export const SB_AUTO = 'bsc_sb_auto';
 export const SB_LAST = 'bsc_sb_last';
@@ -341,8 +341,15 @@ export async function hacerLogin() {
 async function sincronizarInicio() {
   try {
     if (await SB.vacia()) {
-      const n = await SB.push();
-      toast('✓ Base creada en la nube con ' + n + ' registros');
+      // Sembrar la nube es una escritura masiva: solo un administrador puede hacerlo
+      // (las reglas RLS bloquean la escritura a lectores/capturistas). Evitamos así
+      // el error "row-level security policy" al conectar con una cuenta sin permisos.
+      if (esAdmin()) {
+        const n = await SB.push();
+        toast('✓ Base creada en la nube con ' + n + ' registros');
+      } else {
+        toast('☁ Conectado. La base aún no tiene datos; un administrador debe cargarlos.');
+      }
     } else {
       const n = await SB.pull();
       toast('☁ ' + n + ' registros descargados');

@@ -177,16 +177,28 @@ returns bsc_perfiles language plpgsql security definer set search_path = public 
 declare
   fila bsc_perfiles;
   correo text := lower(auth.jwt() ->> 'email');
+  -- ¿Ya existe algún administrador activo en el sistema?
+  hay_admin boolean := exists(select 1 from bsc_perfiles where rol = 'admin' and activo);
 begin
   update bsc_perfiles set id = auth.uid(), actualizado = now()
     where email = correo and (id is null or id = auth.uid())
     returning * into fila;
 
   if fila.email is null then
+    -- Nadie lo registró antes: si aún no hay ningún administrador, este primer
+    -- usuario arranca como admin (bootstrap). Si ya hay admin, entra como lector.
     insert into bsc_perfiles (id, email, nombre, rol)
-    values (auth.uid(), correo, correo, 'lector')
+    values (auth.uid(), correo, correo, case when hay_admin then 'lector' else 'admin' end)
     on conflict (email) do update set id = excluded.id
     returning * into fila;
+  end if;
+
+  -- Bootstrap de seguridad: si el sistema no tiene ningún administrador todavía,
+  -- promovemos a este usuario para que siempre exista al menos un admin.
+  if not hay_admin and coalesce(fila.rol, '') <> 'admin' then
+    update bsc_perfiles set rol = 'admin', activo = true, actualizado = now()
+      where email = fila.email
+      returning * into fila;
   end if;
 
   return fila;
