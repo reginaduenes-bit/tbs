@@ -33,9 +33,21 @@ Es lo único que hay que configurar. **Usa la llave `anon public`, nunca la `ser
 
 ### 4. Crear las cuentas de acceso
 
-En Supabase → **Authentication → Users → Add user**, da de alta a cada responsable con su correo y contraseña (activa *Auto Confirm User*).
+En Supabase → **Authentication → Users → Add user**, da de alta a cada persona con su correo y contraseña (activa *Auto Confirm User*).
 
-### 5. Arrancar
+### 5. Crear tu primer administrador
+
+Las cuentas por sí solas no tienen rol todavía. En Supabase → **SQL Editor**, corre esto una sola vez con tu propio correo (el mismo que usaste en el paso 4):
+
+```sql
+insert into bsc_perfiles (email, nombre, rol)
+values ('tu@empresa.com', 'Tu nombre', 'admin')
+on conflict (email) do update set rol = 'admin';
+```
+
+Al iniciar sesión con ese correo quedas vinculado como **Administrador** y ya puedes dar de alta al resto del equipo desde la sección **Usuarios y Permisos** de la plataforma, sin volver a tocar SQL.
+
+### 6. Arrancar
 
 ```bash
 npm run dev
@@ -82,6 +94,7 @@ En el panel del proveedor define las mismas dos variables (`PUBLIC_SUPABASE_URL`
         ├── model.js         ← periodos, semáforos, cumplimiento
         ├── charts.js        ← motor de 10 gráficos SVG
         ├── cloud.js         ← Supabase: sesión y sincronización
+        ├── permisos.js      ← roles y restricciones de vista/captura
         ├── router.js        ← navegación entre vistas
         ├── seed.js          ← 35 indicadores iniciales
         ├── ui.js            ← avisos, ventanas, adaptación móvil
@@ -109,7 +122,7 @@ En la barra superior siempre ves el estado:
 
 En **Configuración → Conexión con Supabase** tienes los botones manuales de subir y descargar, y el interruptor de autosincronización.
 
-## Las ocho secciones
+## Las nueve secciones
 
 | Sección | Para qué |
 |---|---|
@@ -121,10 +134,27 @@ En **Configuración → Conexión con Supabase** tienes los botones manuales de 
 | Indicadores | Agregar, editar, desactivar o eliminar KPIs, metas y umbrales |
 | Importar / Exportar | Leer CSV, exportar a Excel y respaldar en `.json` |
 | Configuración | Empresa, perspectivas, responsables y nube |
+| Usuarios y Permisos | Roles, contraseñas (vía Supabase Auth) y qué ve/captura cada quién |
+
+## Usuarios, contraseñas y roles
+
+Las contraseñas **no** se guardan en la base de datos de la plataforma: viven en **Supabase Authentication**, que ya trae hasheo, recuperación de contraseña y todo lo de seguridad de credenciales resuelto. La tabla `bsc_perfiles` solo asocia un correo con un **rol** y sus **permisos**:
+
+| Rol | Puede ver | Puede capturar |
+|---|---|---|
+| **Administrador** | Las nueve secciones | Todos los indicadores |
+| **Capturista** | Cuadro de Mando, Tableros, Captura de Datos | Solo los indicadores de su responsable vinculado |
+| **Lector** | Cuadro de Mando, Tableros, Mapa, Análisis | Ninguno (sin acceso a Captura) |
+
+Desde **Usuarios y Permisos** (solo visible para administradores) puedes además marcar/desmarcar vistas específicas por persona, por si alguien necesita una combinación distinta a la de su rol.
+
+Para dar de alta a alguien: 1) créale la cuenta en Supabase → Authentication → Users, 2) regístrala con el mismo correo en **Usuarios y Permisos** y asígnale rol (y responsable, si es capturista). Se vincula sola la primera vez que esa persona inicia sesión.
 
 ## Seguridad
 
 - La llave `anon public` está pensada para viajar al navegador: por eso lleva el prefijo `PUBLIC_`.
 - Quien no tenga una cuenta creada por ti **no puede leer ni escribir nada**: así quedó configurada la seguridad a nivel de tablas (RLS) en `schema.sql`.
+- Las restricciones de vista y captura por rol **no son solo de pantalla**: están reforzadas con políticas RLS en `bsc_perfiles`, `bsc_mediciones` y el resto de tablas, así que un Capturista no puede guardar mediciones ajenas ni un Lector puede escribir nada, aunque intente llamar a Supabase directamente.
+- Solo un Administrador puede cambiar roles o permisos de otros; nadie puede autoasignarse el rol de administrador desde la app.
 - El `.env` está en el `.gitignore`. Nunca subas tus claves a un repositorio público.
 - La llave `service_role` no se usa en ningún punto del proyecto, y no debe usarse.

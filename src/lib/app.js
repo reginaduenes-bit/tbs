@@ -16,7 +16,9 @@ import * as vCaptura from './views/captura.js';
 import * as vIndicadores from './views/indicadores.js';
 import * as vDatos from './views/datos.js';
 import * as vConfig from './views/config.js';
+import * as vUsuarios from './views/usuarios.js';
 import * as cloud from './cloud.js';
+import * as permisos from './permisos.js';
 
 /* ---------- registro de vistas ---------- */
 registrarVista('dashboard', {
@@ -59,6 +61,11 @@ registrarVista('config', {
   sub: () => 'Empresa, perspectivas, objetivos, responsables y nube',
   render: vConfig.renderConfig,
 });
+registrarVista('usuarios', {
+  titulo: 'Usuarios y Permisos',
+  sub: () => 'Cuentas, roles y qué puede ver o capturar cada quién',
+  render: vUsuarios.renderUsuarios,
+});
 
 /**
  * Los manejadores escritos en el HTML (onclick="…") se ejecutan en el ámbito global,
@@ -67,7 +74,7 @@ registrarVista('config', {
 Object.assign(window, {
   nav, render, closeModal, toast, save, setDB, seed,
   ...vDashboard, ...vTablero, ...vMapa, ...vAnalisis,
-  ...vCaptura, ...vIndicadores, ...vDatos, ...vConfig, ...cloud,
+  ...vCaptura, ...vIndicadores, ...vDatos, ...vConfig, ...vUsuarios, ...cloud,
 });
 // DB se reasigna al cargar o al descargar de la nube: se publica como lectura viva.
 Object.defineProperty(window, 'DB', { get: () => DB, configurable: true });
@@ -93,5 +100,6 @@ export function iniciar() {
   load();
   $$('.nav-item').forEach((b) => (b.onclick = () => nav(b.dataset.view)));
   nav('dashboard');
+  permisos.aplicarPermisos();
   cloud.initCloud();
 }

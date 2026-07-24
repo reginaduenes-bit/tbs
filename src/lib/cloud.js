@@ -8,6 +8,7 @@ import { DB, save, LS_KEY, alGuardar, setDB } from './state.js';
 import { seed } from './seed.js';
 import { $, esc, toast, openModal, closeModal } from './ui.js';
 import { render, vistaActual } from './router.js';
+import { setPerfil, limpiarPerfil, setDisponible } from './permisos.js';
 
 export const SB_AUTO = 'bsc_sb_auto';
 export const SB_LAST = 'bsc_sb_last';
@@ -23,8 +24,22 @@ export const supabase =
       })
     : null;
 
+setDisponible(!!supabase);
+
 /** Usuario con sesión iniciada (enlace vivo para las vistas). */
 export let sbUser = null;
+
+/** Enlaza (o crea) la fila de bsc_perfiles del usuario y la publica en permisos.js. */
+async function vincularPerfil() {
+  try {
+    const { data, error } = await supabase.rpc('bsc_vincular_perfil');
+    if (error) throw error;
+    setPerfil(Array.isArray(data) ? data[0] : data);
+  } catch (e) {
+    console.error('No se pudo cargar el perfil de permisos:', e.message || e);
+    limpiarPerfil();
+  }
+}
 
 let sbBusy = false, _pushT = null;
 
@@ -101,12 +116,14 @@ export const SB = {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) throw new Error(error.message);
     sbUser = { email: data.user.email, id: data.user.id };
+    await vincularPerfil();
     return sbUser;
   },
 
   async logout() {
     try { await supabase.auth.signOut(); } catch (e) {}
     sbUser = null;
+    limpiarPerfil();
     actualizarChip();
     toast('Sesión cerrada · sigues trabajando en local');
   },
@@ -116,6 +133,7 @@ export const SB = {
     const { data } = await supabase.auth.getSession();
     if (data && data.session && data.session.user) {
       sbUser = { email: data.session.user.email, id: data.session.user.id };
+      await vincularPerfil();
       return true;
     }
     return false;

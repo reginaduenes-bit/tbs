@@ -1,5 +1,6 @@
 import { sparkline } from '../charts.js';
 import { FREC_LABEL, currentPeriod, fmtNum, ind, meds, periodLabel, persp, prevPeriods, setMed, user } from '../model.js';
+import { esCapturista, miPerfil } from '../permisos.js';
 import { render } from '../router.js';
 import { DB } from '../state.js';
 import { $, esc, toast } from '../ui.js';
@@ -9,14 +10,22 @@ export function setCapResp(v){capResp=v;render();}
 /* ================= CAPTURA ================= */
 
 export function renderCaptura(c){
+  const restringido = esCapturista();
+  if(restringido) capResp = miPerfil.usuario_id || 'ninguno';
+  if(restringido && capResp==='ninguno'){
+    c.innerHTML='<div class="empty"><div class="big">🔒</div>Tu cuenta aún no está vinculada a ningún responsable.<br>Pide a un administrador que te asigne uno en <b>Usuarios y Permisos</b>.</div>';
+    return;
+  }
   const inds=DB.indicadores.filter(i=>i.activo&&(capResp==='all'||i.resp===capResp));
   const pendCount=inds.filter(i=>!meds(i.id).some(m=>m.periodo===currentPeriod(i.frec))).length;
   let html=`<div class="cap-head">
     <div class="fitem"><label>¿Quién captura?</label>
-      <select onchange="setCapResp(this.value)">
+      ${restringido
+        ? `<input value="${esc((user(capResp)||{}).nombre||'')}" disabled>`
+        : `<select onchange="setCapResp(this.value)">
         <option value="all">Todos los responsables</option>
         ${DB.usuarios.map(u=>`<option value="${u.id}" ${capResp===u.id?'selected':''}>${esc(u.nombre)}</option>`).join('')}
-      </select></div>
+      </select>`}</div>
     <div style="padding-bottom:6px">${pendCount?`<span class="pending">⏳ ${pendCount} indicador${pendCount!==1?'es':''} pendiente${pendCount!==1?'s':''} del periodo actual</span>`:'<span class="done-chip">✓ Todo capturado en el periodo actual</span>'}</div>
   </div>`;
   if(!inds.length)html+='<div class="empty"><div class="big">📭</div>No hay indicadores asignados a este responsable.</div>';
@@ -50,6 +59,7 @@ export function renderCaptura(c){
   c.innerHTML=html;
 }
 export function capturar(iid){
+  if(esCapturista() && ind(iid).resp!==miPerfil.usuario_id)return toast('⚠ No puedes capturar un indicador que no es tuyo');
   const v=$('#cv-'+iid).value;
   if(v==='')return toast('⚠ Escribe el valor a registrar');
   const per=$('#cp-'+iid).value, quien=capResp==='all'?null:capResp;
