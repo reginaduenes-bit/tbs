@@ -22,7 +22,7 @@ export async function renderUsuarios(c) {
 function pintar(c) {
   c.innerHTML = `<div class="card" style="padding:22px">
     <div class="section-head"><h3>👤 Usuarios y permisos</h3><button class="btn sm primary" onclick="invitarUsuario()">+ Invitar</button></div>
-    <p class="help" style="margin-bottom:14px">1) Crea la cuenta (correo + contraseña) en tu panel de Supabase → <b>Authentication → Users</b>. 2) Regístrala aquí con el mismo correo para asignarle un rol. Al iniciar sesión por primera vez queda vinculada automáticamente.</p>
+    <p class="help" style="margin-bottom:14px">Cada persona crea su cuenta (correo + contraseña) desde la pantalla de inicio con <b>“Crear cuenta”</b>; entra con rol <b>Lector</b>. Aquí ajustas su rol y permisos. También puedes pre-registrar un correo con <b>“+ Invitar”</b>: al iniciar sesión por primera vez, esa cuenta queda vinculada automáticamente con el rol que le hayas asignado.</p>
     ${!_perfiles.length ? vacio('Aún no hay usuarios registrados.') : `<table class="tbl"><tbody>${_perfiles.map(fila).join('')}</tbody></table>`}
   </div>`;
 }

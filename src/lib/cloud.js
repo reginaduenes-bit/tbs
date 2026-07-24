@@ -120,6 +120,24 @@ export const SB = {
     return sbUser;
   },
 
+  /**
+   * Crea una cuenta nueva en Supabase Authentication (correo + contraseña).
+   * Devuelve { sesion: true } si el proyecto no exige confirmar el correo
+   * (la sesión queda iniciada al momento) o { sesion: false } si Supabase
+   * envió un correo de confirmación y hay que abrir el enlace antes de entrar.
+   */
+  async registrar(email, password) {
+    const { data, error } = await supabase.auth.signUp({ email, password });
+    if (error) throw new Error(error.message);
+    // Con confirmación de correo desactivada, signUp devuelve sesión al instante.
+    if (data.session && data.user) {
+      sbUser = { email: data.user.email, id: data.user.id };
+      await vincularPerfil();
+      return { sesion: true };
+    }
+    return { sesion: false };
+  },
+
   async logout() {
     try { await supabase.auth.signOut(); } catch (e) {}
     sbUser = null;
@@ -250,12 +268,56 @@ export function loginModal() {
       : `<p class="help" style="margin-bottom:14px">Proyecto: <b>${esc(URL_SB.replace(/^https?:\/\//, ''))}</b> <span class="chip gray">.env</span></p>
     <div class="frow f1"><div class="fitem"><label>Correo</label><input id="sb-mail" type="email" autocomplete="username" placeholder="tu@empresa.com"></div></div>
     <div class="frow f1"><div class="fitem"><label>Contraseña</label><input id="sb-pass" type="password" autocomplete="current-password" placeholder="••••••••" onkeydown="if(event.key==='Enter')hacerLogin()"></div></div>
-    <p class="help">Las cuentas se crean en tu panel de Supabase (Authentication → Users). Sin iniciar sesión puedes seguir trabajando: los datos se guardan en este dispositivo.</p>
+    <p class="help">¿No tienes cuenta? <a href="#" onclick="registroModal();return false" style="color:var(--acc,#0284c7);font-weight:700">Crear una cuenta nueva</a>. Sin iniciar sesión puedes seguir trabajando: los datos se guardan en este dispositivo.</p>
     <div id="sb-msg"></div>`}
   </div>
   <div class="mfoot"><button class="btn" onclick="closeModal()">Trabajar sin conexión</button>
   ${SB.configurado() ? '<button class="btn primary" onclick="hacerLogin()">Entrar</button>' : ''}</div>`);
   setTimeout(() => { const m = $('#sb-mail'); if (m) m.focus(); }, 80);
+}
+
+/* ---------- crear cuenta (registro) ---------- */
+export function registroModal() {
+  if (!SB.configurado()) return loginModal();
+  openModal(`<div class="mhead"><h3>Crear cuenta</h3><button class="close-x" onclick="closeModal()">✕</button></div>
+  <div class="mbody">
+    <p class="help" style="margin-bottom:14px">Proyecto: <b>${esc(URL_SB.replace(/^https?:\/\//, ''))}</b> <span class="chip gray">.env</span></p>
+    <div class="frow f1"><div class="fitem"><label>Correo</label><input id="rg-mail" type="email" autocomplete="username" placeholder="tu@empresa.com"></div></div>
+    <div class="frow f1"><div class="fitem"><label>Contraseña (mínimo 6 caracteres)</label><input id="rg-pass" type="password" autocomplete="new-password" placeholder="••••••••"></div></div>
+    <div class="frow f1"><div class="fitem"><label>Repite la contraseña</label><input id="rg-pass2" type="password" autocomplete="new-password" placeholder="••••••••" onkeydown="if(event.key==='Enter')hacerRegistro()"></div></div>
+    <p class="help">Tu cuenta se crea con rol <b>Lector</b> (solo lectura). Un administrador puede ampliar tus permisos después desde <b>Usuarios y Permisos</b>.</p>
+    <div id="rg-msg"></div>
+  </div>
+  <div class="mfoot"><button class="btn" onclick="loginModal()">← Ya tengo cuenta</button><button class="btn primary" onclick="hacerRegistro()">Crear cuenta</button></div>`);
+  setTimeout(() => { const m = $('#rg-mail'); if (m) m.focus(); }, 80);
+}
+
+export async function hacerRegistro() {
+  const mail = (($('#rg-mail') || {}).value || '').trim();
+  const pass = ($('#rg-pass') || {}).value || '';
+  const pass2 = ($('#rg-pass2') || {}).value || '';
+  const msg = $('#rg-msg');
+  const err = (t) => { if (msg) msg.innerHTML = '<p class="help" style="color:var(--red)">⚠ ' + esc(t) + '</p>'; };
+  if (!mail || !pass) return err('Captura tu correo y una contraseña.');
+  if (pass.length < 6) return err('La contraseña debe tener al menos 6 caracteres.');
+  if (pass !== pass2) return err('Las contraseñas no coinciden.');
+  if (msg) msg.innerHTML = '<p class="help">Creando cuenta…</p>';
+  try {
+    const { sesion } = await SB.registrar(mail, pass);
+    if (sesion) {
+      closeModal();
+      actualizarChip();
+      toast('✓ Cuenta creada · sesión iniciada como ' + sbUser.email);
+      await sincronizarInicio();
+    } else {
+      if (msg) msg.innerHTML = '<p class="help" style="color:var(--green)">✓ Cuenta creada. Revisa tu correo <b>' + esc(mail) + '</b> y abre el enlace de confirmación; después inicia sesión.</p>';
+    }
+  } catch (e) {
+    const t = /already registered|already exists/i.test(e.message)
+      ? 'Ese correo ya tiene una cuenta. Inicia sesión.'
+      : e.message;
+    err(t);
+  }
 }
 
 export async function hacerLogin() {
