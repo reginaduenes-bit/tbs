@@ -121,6 +121,23 @@ export const SB = {
   },
 
   /**
+   * Crea la cuenta de OTRO usuario (correo + contraseña) sin cerrar la sesión
+   * del administrador. Usa un cliente temporal aparte (otro almacenamiento y sin
+   * persistir), porque signUp inicia sesión en el cliente donde se llama; al
+   * hacerlo en uno desechable, la sesión del admin (cliente principal) no se toca.
+   * Devuelve { sesion } indicando si Supabase confirmó la cuenta al instante.
+   */
+  async crearUsuario(email, password) {
+    const tmp = createClient(URL_SB, KEY_SB, {
+      auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false, storageKey: 'bsc-alta-tmp' },
+    });
+    const { data, error } = await tmp.auth.signUp({ email, password });
+    try { await tmp.auth.signOut(); } catch (e) {}
+    if (error) throw new Error(error.message);
+    return { sesion: !!(data && data.session) };
+  },
+
+  /**
    * Crea una cuenta nueva en Supabase Authentication (correo + contraseña).
    * Devuelve { sesion: true } si el proyecto no exige confirmar el correo
    * (la sesión queda iniciada al momento) o { sesion: false } si Supabase

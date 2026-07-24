@@ -53,8 +53,11 @@ function abrirModal(p) {
   const vistasIniciales = p && p.vistas && p.vistas.length ? p.vistas : VISTAS_POR_ROL[rol];
   openModal(`<div class="mhead"><h3>${p ? 'Editar usuario' : 'Invitar usuario'}</h3><button class="close-x" onclick="closeModal()">✕</button></div>
   <div class="mbody">
-    <div class="frow f1"><div class="fitem"><label>Correo (igual al de Supabase Auth)</label>
+    <div class="frow f1"><div class="fitem"><label>Correo${p ? '' : ' (será su usuario para entrar)'}</label>
       <input id="v-email" type="email" placeholder="persona@empresa.com" value="${p ? esc(p.email) : ''}" ${p ? 'disabled' : ''}></div></div>
+    ${p ? '' : `<div class="frow f1"><div class="fitem"><label>Contraseña (mínimo 6 caracteres)</label>
+      <input id="v-pass" type="password" autocomplete="new-password" placeholder="••••••••">
+      <p class="help" style="margin-top:5px">Se crea la cuenta en Supabase con esta contraseña. Déjala vacía solo si quieres pre-registrar el correo y que la persona cree su propia contraseña después.</p></div></div>`}
     <div class="frow" style="grid-template-columns:2fr 1fr">
       <div class="fitem"><label>Nombre</label><input id="v-nombre" value="${p ? esc(p.nombre || '') : ''}" placeholder="Nombre visible"></div>
       <div class="fitem"><label>Rol</label><select id="v-rol" onchange="cambiarRolModal(this.value)">
@@ -97,11 +100,31 @@ export async function guardarPerfil(emailOriginal) {
   const marcadas = [...document.querySelectorAll('.v-vista:checked')].map((i) => i.value);
   const vistas = marcadas.length === (VISTAS_POR_ROL[rol] || []).length && marcadas.every((v) => VISTAS_POR_ROL[rol].includes(v)) ? [] : marcadas;
 
+  // Al crear un usuario nuevo con contraseña, se da de alta la cuenta en
+  // Supabase Auth (sin cerrar la sesión del admin). Al editar no aplica.
+  let avisoAlta = '';
+  if (!emailOriginal) {
+    const pass = (($('#v-pass') || {}).value || '');
+    if (pass) {
+      if (pass.length < 6) return toast('⚠ La contraseña debe tener al menos 6 caracteres');
+      try {
+        const { sesion } = await SB.crearUsuario(email, pass);
+        avisoAlta = sesion ? ' · cuenta creada' : ' · falta que confirme su correo';
+      } catch (e) {
+        if (/already registered|already exists/i.test(e.message)) {
+          avisoAlta = ' · ya tenía cuenta (se conservó su contraseña)';
+        } else {
+          return toast('⚠ ' + e.message);
+        }
+      }
+    }
+  }
+
   const fila = { email, nombre, rol, usuario_id, activo, vistas };
   const { error } = await supabase.from('bsc_perfiles').upsert(fila, { onConflict: 'email' });
   if (error) return toast('⚠ ' + error.message);
   closeModal();
-  toast('✓ Usuario guardado');
+  toast('✓ Usuario guardado' + avisoAlta);
   renderUsuarios($('#content'));
 }
 
