@@ -143,7 +143,8 @@ export const SB = {
     sbUser = null;
     limpiarPerfil();
     actualizarChip();
-    toast('Sesión cerrada · sigues trabajando en local');
+    mostrarGate('login');   // vuelve a bloquear: sin sesión no se ve nada
+    toast('Sesión cerrada');
   },
 
   async restaurarSesion() {
@@ -249,13 +250,15 @@ export function cerrarSesion() { SB.logout().then(() => render()); }
 export function actualizarChip(estado) {
   const el = $('#cloud');
   if (!el) return;
+  // Botón de salir: visible siempre que haya sesión iniciada.
+  const salir = '<button class="cchip out" onclick="cerrarSesion()" title="Cerrar sesión">⎋ Salir</button>';
   if (!SB.configurado()) { el.innerHTML = '<span class="cchip off" title="Sin .env configurado: los datos se guardan solo en este dispositivo">◍ Local</span>'; return; }
   if (!sbUser) { el.innerHTML = '<button class="cchip warn" onclick="loginModal()">⌁ Iniciar sesión</button>'; return; }
-  if (estado === 'sync') { el.innerHTML = '<span class="cchip sync">⟳ Sincronizando…</span>'; return; }
-  if (estado === 'error') { el.innerHTML = '<button class="cchip err" onclick="sincronizar(\'push\')" title="Reintentar">⚠ Sin guardar</button>'; return; }
+  if (estado === 'sync') { el.innerHTML = '<span class="cchip sync">⟳ Sincronizando…</span>' + salir; return; }
+  if (estado === 'error') { el.innerHTML = '<button class="cchip err" onclick="sincronizar(\'push\')" title="Reintentar">⚠ Sin guardar</button>' + salir; return; }
   const last = localStorage.getItem(SB_LAST);
   const h = last ? new Date(last).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }) : '';
-  el.innerHTML = '<button class="cchip ok" onclick="nav(\'config\')" title="' + esc(sbUser.email) + '">☁ En la nube' + (h ? ' · ' + h : '') + '</button>';
+  el.innerHTML = '<button class="cchip ok" onclick="nav(\'config\')" title="' + esc(sbUser.email) + '">☁ En la nube' + (h ? ' · ' + h : '') + '</button>' + salir;
 }
 export const updateCloudChip = actualizarChip;
 
@@ -337,6 +340,100 @@ export async function hacerLogin() {
   }
 }
 
+/* ============================================================
+   PORTÓN DE ACCESO (login obligatorio)
+   Sin sesión iniciada no se ve nada del sistema: solo el login.
+   ============================================================ */
+
+/** Marca la app como accesible (oculta el portón). */
+function entrarApp() { document.body.classList.add('autenticado'); }
+
+/** Bloquea la app y muestra la pantalla de acceso en el modo indicado. */
+export function mostrarGate(modo = 'login') {
+  document.body.classList.remove('autenticado');
+  const g = $('#gate');
+  if (g) g.innerHTML = gateHTML(modo);
+  setTimeout(() => { const m = $('#g-mail'); if (m) m.focus(); }, 60);
+}
+
+function gateHTML(modo) {
+  const marca = `<div class="gate-brand"><span class="logo">◈</span><h1>BSC Integral</h1></div>
+    <p class="gate-sub">Cuadro de Mando Integral · Kaplan &amp; Norton</p>`;
+
+  if (!SB.configurado()) {
+    return `<div class="gate-card">${marca}
+      <h2>Sistema no conectado</h2>
+      <p class="help" style="color:var(--red)">⚠ Falta configurar el archivo <b>.env</b> con tu <b>PUBLIC_SUPABASE_URL</b> y <b>PUBLIC_SUPABASE_ANON_KEY</b>. Sin conexión no es posible iniciar sesión.</p>
+    </div>`;
+  }
+
+  if (modo === 'registro') {
+    return `<div class="gate-card">${marca}
+      <h2>Crear cuenta</h2>
+      <div class="fitem"><label>Correo</label><input id="g-mail" type="email" autocomplete="username" placeholder="tu@empresa.com"></div>
+      <div class="fitem"><label>Contraseña (mínimo 6 caracteres)</label><input id="g-pass" type="password" autocomplete="new-password" placeholder="••••••••"></div>
+      <div class="fitem"><label>Repite la contraseña</label><input id="g-pass2" type="password" autocomplete="new-password" placeholder="••••••••" onkeydown="if(event.key==='Enter')gateRegistro()"></div>
+      <button class="btn primary" onclick="gateRegistro()">Crear cuenta</button>
+      <div id="g-msg"></div>
+      <p class="gate-switch">¿Ya tienes cuenta? <a onclick="mostrarGate('login')">Inicia sesión</a></p>
+    </div>`;
+  }
+
+  return `<div class="gate-card">${marca}
+    <h2>Iniciar sesión</h2>
+    <div class="fitem"><label>Correo</label><input id="g-mail" type="email" autocomplete="username" placeholder="tu@empresa.com"></div>
+    <div class="fitem"><label>Contraseña</label><input id="g-pass" type="password" autocomplete="current-password" placeholder="••••••••" onkeydown="if(event.key==='Enter')gateLogin()"></div>
+    <button class="btn primary" onclick="gateLogin()">Entrar</button>
+    <div id="g-msg"></div>
+    <p class="gate-switch">¿No tienes cuenta? <a onclick="mostrarGate('registro')">Crear una cuenta</a></p>
+  </div>`;
+}
+
+export async function gateLogin() {
+  const mail = (($('#g-mail') || {}).value || '').trim();
+  const pass = ($('#g-pass') || {}).value || '';
+  const msg = $('#g-msg');
+  const err = (t) => { if (msg) msg.innerHTML = '<p class="help" style="color:var(--red)">⚠ ' + esc(t) + '</p>'; };
+  if (!mail || !pass) return err('Captura tu correo y contraseña.');
+  if (msg) msg.innerHTML = '<p class="help">Conectando…</p>';
+  try {
+    await SB.login(mail, pass);
+    entrarApp();
+    actualizarChip();
+    toast('✓ Sesión iniciada como ' + sbUser.email);
+    render();
+    await sincronizarInicio();
+  } catch (e) {
+    err(e.message === 'Invalid login credentials' ? 'Correo o contraseña incorrectos.' : e.message);
+  }
+}
+
+export async function gateRegistro() {
+  const mail = (($('#g-mail') || {}).value || '').trim();
+  const pass = ($('#g-pass') || {}).value || '';
+  const pass2 = ($('#g-pass2') || {}).value || '';
+  const msg = $('#g-msg');
+  const err = (t) => { if (msg) msg.innerHTML = '<p class="help" style="color:var(--red)">⚠ ' + esc(t) + '</p>'; };
+  if (!mail || !pass) return err('Captura tu correo y una contraseña.');
+  if (pass.length < 6) return err('La contraseña debe tener al menos 6 caracteres.');
+  if (pass !== pass2) return err('Las contraseñas no coinciden.');
+  if (msg) msg.innerHTML = '<p class="help">Creando cuenta…</p>';
+  try {
+    const { sesion } = await SB.registrar(mail, pass);
+    if (sesion) {
+      entrarApp();
+      actualizarChip();
+      toast('✓ Cuenta creada · sesión iniciada como ' + sbUser.email);
+      render();
+      await sincronizarInicio();
+    } else if (msg) {
+      msg.innerHTML = '<p class="help" style="color:var(--green)">✓ Cuenta creada. Revisa tu correo <b>' + esc(mail) + '</b>, abre el enlace de confirmación y luego inicia sesión.</p>';
+    }
+  } catch (e) {
+    err(/already registered|already exists/i.test(e.message) ? 'Ese correo ya tiene una cuenta. Inicia sesión.' : e.message);
+  }
+}
+
 /** Primera sincronización: si la nube está vacía, siembra; si no, descarga. */
 async function sincronizarInicio() {
   try {
@@ -365,11 +462,13 @@ async function sincronizarInicio() {
 export async function initCloud() {
   actualizarChip();
   alGuardar(() => { if (SB.listo() && sbAuto()) programarPush(); });
-  if (!supabase) return;
+  mostrarGate('login');       // por defecto el sistema queda bloqueado
+  if (!supabase) return;      // sin .env el portón muestra el aviso de "no conectado"
   if (await SB.restaurarSesion()) {
+    entrarApp();              // había sesión guardada: se abre la app
     actualizarChip('sync');
+    render();
     await sincronizarInicio();
-  } else {
-    actualizarChip();
   }
+  // sin sesión: permanece en el portón de acceso
 }
